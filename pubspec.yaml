@@ -8,12 +8,9 @@ environment:
 
 dependencies:
   audio_waveforms: ^1.0.5
-  audioplayers: ^6.0.0
   flutter:
     sdk: flutter
-  flutter_audio_waveforms: ^1.2.1+8
   flutter_svg: ^2.0.10+1
-  just_waveform: ^0.0.5
   path_provider: ^2.1.3
 
 dev_dependencies:

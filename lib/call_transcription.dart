@@ -19,12 +19,11 @@ class _CallTranscriptionState extends State<CallTranscription>
   late PlayerController _playerController;
   late TabController _tabController;
   final ValueNotifier<bool> _isLoading = ValueNotifier(true);
-  final ValueNotifier<String> _timeElapsed = ValueNotifier('00:00');
-  final ValueNotifier<String> _totalTime = ValueNotifier('00:00');
+  final ValueNotifier<String> _timeElapsed = ValueNotifier('00:00:00');
+  final ValueNotifier<String> _totalTime = ValueNotifier('00:00:00');
   final ValueNotifier<double> _playbackSpeed = ValueNotifier(1.0);
   final ValueNotifier<bool> _isPlaying = ValueNotifier(false);
-  Timer? _timer;
-  final Color _blueColor = const Color(0XFF1F62FF);
+  static const Color _blueColor = Color(0XFF1F62FF);
 
   @override
   void initState() {
@@ -34,67 +33,46 @@ class _CallTranscriptionState extends State<CallTranscription>
   }
 
   Future<void> _initializeAudio() async {
-    _playerController = PlayerController();
+    _playerController = PlayerController()
+      ..updateFrequency = UpdateFrequency.high;
     final audioPath = await _loadAudioFile();
-    await _extractWaveform(audioPath);
-    _isLoading.value = false;
-    _updateTotalTime();
-    _playerController.onCurrentDurationChanged.listen((duration) {
-      _updateTimeElapsed(Duration(milliseconds: duration));
-    });
-    _playerController.onPlayerStateChanged.listen((state) {
-      _isPlaying.value = state == PlayerState.playing;
-    });
-  }
-
-  Future<String> _loadAudioFile() async {
-    try {
-      final tempDir = await getTemporaryDirectory();
-      final tempPath = '${tempDir.path}/demo.mp3';
-      final audioFile = File(tempPath);
-      if (!await audioFile.exists()) {
-        final audioBytes = await rootBundle.load('assets/demo.mp3');
-        await audioFile.writeAsBytes(audioBytes.buffer.asUint8List());
-      }
-      debugPrint("Audio file path: $tempPath");
-      debugPrint("Audio file exists: ${await audioFile.exists()}");
-      return tempPath;
-    } catch (e) {
-      debugPrint("Error loading audio file: $e");
-      rethrow;
-    }
-  }
-
-  Future<void> _extractWaveform(String audioPath) async {
     await _playerController.preparePlayer(
       path: audioPath,
       shouldExtractWaveform: true,
       noOfSamples: 100,
       volume: 1.0,
     );
+    _isLoading.value = false;
+    _updateTotalTime();
+    _playerController.onCurrentDurationChanged.listen(
+        (duration) => _timeElapsed.value = _formatDuration(duration ~/ 1000));
+    _playerController.onPlayerStateChanged
+        .listen((state) => _isPlaying.value = state == PlayerState.playing);
   }
 
-  void _togglePlayPause() {
-    if (_isPlaying.value) {
-      _playerController.pausePlayer();
-    } else {
-      _playerController.startPlayer();
+  Future<String> _loadAudioFile() async {
+    final tempDir = await getTemporaryDirectory();
+    final tempPath = '${tempDir.path}/demo.mp3';
+    final audioFile = File(tempPath);
+    if (!await audioFile.exists()) {
+      final audioBytes = await rootBundle.load('assets/demo.mp3');
+      await audioFile.writeAsBytes(audioBytes.buffer.asUint8List());
     }
+    return tempPath;
   }
 
-  void _updateTimeElapsed(Duration duration) {
-    _timeElapsed.value = _formatDuration(duration.inSeconds);
-  }
+  void _togglePlayPause() => _isPlaying.value
+      ? _playerController.pausePlayer()
+      : _playerController.startPlayer();
 
-  void _updateTotalTime() {
-    final duration = _playerController.maxDuration;
-    _totalTime.value = _formatDuration(duration);
-  }
+  void _updateTotalTime() =>
+      _totalTime.value = _formatDuration(_playerController.maxDuration ~/ 1000);
 
-  String _formatDuration(int milliseconds) {
-    final seconds = milliseconds ~/ 1000;
-    return '${(seconds ~/ 60).toString().padLeft(2, '0')}:'
-        '${(seconds % 60).toString().padLeft(2, '0')}';
+  String _formatDuration(int seconds) {
+    final hours = seconds ~/ 3600;
+    final minutes = (seconds % 3600) ~/ 60;
+    final remainingSeconds = seconds % 60;
+    return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${remainingSeconds.toString().padLeft(2, '0')}';
   }
 
   void _changeSpeed() {
@@ -104,24 +82,15 @@ class _CallTranscriptionState extends State<CallTranscription>
     _playerController.setRate(_playbackSpeed.value);
   }
 
-  Future<void> _seekForward() async {
+  Future<void> _seek(int seconds) async {
     final currentPos =
         await _playerController.getDuration(DurationType.current);
-    final targetPos = currentPos + 10000; // forward 10 seconds
-    _playerController.seekTo(targetPos);
-  }
-
-  Future<void> _seekBackward() async {
-    final currentPos =
-        await _playerController.getDuration(DurationType.current);
-    final targetPos = currentPos - 10000; // backward 10 seconds
-    _playerController.seekTo(targetPos);
+    _playerController.seekTo(currentPos + seconds * 1000);
   }
 
   @override
   void dispose() {
     _playerController.dispose();
-    _timer?.cancel();
     _tabController.dispose();
     super.dispose();
   }
@@ -134,30 +103,28 @@ class _CallTranscriptionState extends State<CallTranscription>
       appBar: _buildAppBar(),
       body: ValueListenableBuilder<bool>(
         valueListenable: _isLoading,
-        builder: (context, isLoading, _) {
-          return isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : Column(
-                  children: [
-                    const SizedBox(height: 16),
-                    _buildWaveform(size),
-                    const Spacer(),
-                    _buildControlPanel(),
-                  ],
-                );
-        },
+        builder: (context, isLoading, _) => isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : Column(
+                children: [
+                  const SizedBox(height: 16),
+                  _buildWaveform(size),
+                  const Spacer(),
+                  _buildControlPanel(),
+                ],
+              ),
       ),
     );
   }
 
   AppBar _buildAppBar() => AppBar(
-        leading: Icon(Icons.arrow_back_rounded, color: _blueColor),
+        leading: const Icon(Icons.arrow_back_rounded, color: _blueColor),
         title: const Text('Call Transcription',
             style: TextStyle(fontWeight: FontWeight.bold)),
         actions: [
           IconButton(
               onPressed: () {},
-              icon: Icon(Icons.more_vert_rounded, color: _blueColor))
+              icon: const Icon(Icons.more_vert_rounded, color: _blueColor))
         ],
         backgroundColor: Colors.transparent,
         bottom: TabBar(
@@ -165,6 +132,7 @@ class _CallTranscriptionState extends State<CallTranscription>
           dividerHeight: 0.5,
           indicatorColor: _blueColor,
           labelColor: _blueColor,
+          labelPadding: EdgeInsets.zero,
           unselectedLabelColor: const Color(0XFF4B5563),
           splashFactory: NoSplash.splashFactory,
           tabs: ['Overview', 'Transcripts', 'Comments', 'Call Intelligence']
@@ -177,18 +145,17 @@ class _CallTranscriptionState extends State<CallTranscription>
         alignment: Alignment.topCenter,
         children: [
           AudioFileWaveforms(
-            size: Size(size.width, (size.height * 84 / 328)),
+            size: Size(size.width, size.height * 84 / 328),
             playerController: _playerController,
             enableSeekGesture: true,
             waveformType: WaveformType.long,
-            margin: const EdgeInsets.only(left: 16, right: 16),
+            margin: const EdgeInsets.symmetric(horizontal: 16),
             decoration: BoxDecoration(
-              color: const Color(0XFFF7F8FB),
-              borderRadius: BorderRadius.circular(8),
-            ),
+                color: const Color(0XFFF7F8FB),
+                borderRadius: BorderRadius.circular(8)),
             playerWaveStyle: PlayerWaveStyle(
-              liveWaveColor: const Color(0xFF1F62FF),
-              fixedWaveColor: const Color(0xFF1F62FF).withOpacity(0.31),
+              liveWaveColor: _blueColor,
+              fixedWaveColor: _blueColor.withOpacity(0.31),
               scaleFactor: size.height * 2,
               waveThickness: 4,
               spacing: 8,
@@ -198,37 +165,26 @@ class _CallTranscriptionState extends State<CallTranscription>
               seekLineThickness: 2,
             ),
           ),
-          _buildTimer(),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            decoration: BoxDecoration(
+                color: const Color(0XFF07090F),
+                borderRadius: BorderRadius.circular(4)),
+            child: ValueListenableBuilder<String>(
+              valueListenable: _timeElapsed,
+              builder: (_, timeElapsed, __) => Text(timeElapsed,
+                  style: const TextStyle(
+                      color: Colors.white, fontWeight: FontWeight.bold)),
+            ),
+          ),
           Positioned(
             bottom: 0,
             left: 0,
             right: 0,
             child: Container(
-              color: Colors.white,
-              height: ((size.height * 84 / 328) / 2) - 6,
-            ),
+                color: Colors.white, height: (size.height * 84 / 328) / 2 - 6),
           ),
         ],
-      );
-
-  Widget _buildTimer() => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-        decoration: BoxDecoration(
-          color: const Color(0XFF07090F),
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: ValueListenableBuilder<String>(
-          valueListenable: _timeElapsed,
-          builder: (context, timeElapsed, _) {
-            return Text(
-              timeElapsed,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-              ),
-            );
-          },
-        ),
       );
 
   Widget _buildControlPanel() => Container(
@@ -238,7 +194,7 @@ class _CallTranscriptionState extends State<CallTranscription>
           children: [
             ValueListenableBuilder<String>(
               valueListenable: _timeElapsed,
-              builder: (context, timeElapsed, _) =>
+              builder: (_, timeElapsed, __) =>
                   Text('$timeElapsed / ${_totalTime.value}'),
             ),
             const SizedBox(height: 8),
@@ -247,25 +203,21 @@ class _CallTranscriptionState extends State<CallTranscription>
               children: [
                 ValueListenableBuilder<double>(
                   valueListenable: _playbackSpeed,
-                  builder: (context, speed, _) => IconButton(
+                  builder: (_, speed, __) => IconButton(
                     onPressed: _changeSpeed,
-                    icon: Text(
-                      '${speed % 1 == 0 ? speed.toInt() : speed}x',
-                      style: const TextStyle(
-                        color: Color(0XFF6B7280),
-                        fontWeight: FontWeight.w400,
-                        fontSize: 20,
-                      ),
-                    ),
+                    icon: Text('${speed % 1 == 0 ? speed.toInt() : speed}x',
+                        style: const TextStyle(
+                            color: Color(0XFF6B7280),
+                            fontWeight: FontWeight.w400,
+                            fontSize: 20)),
                   ),
                 ),
                 IconButton(
-                  onPressed: _seekBackward,
-                  icon: SvgPicture.asset('assets/ic_seek_backward_10.svg'),
-                ),
+                    onPressed: () => _seek(-10),
+                    icon: SvgPicture.asset('assets/ic_seek_backward_10.svg')),
                 ValueListenableBuilder<bool>(
                   valueListenable: _isPlaying,
-                  builder: (context, isPlaying, _) => IconButton(
+                  builder: (_, isPlaying, __) => IconButton(
                     style: IconButton.styleFrom(
                       backgroundColor: _blueColor,
                       shape: RoundedRectangleBorder(
@@ -279,13 +231,11 @@ class _CallTranscriptionState extends State<CallTranscription>
                   ),
                 ),
                 IconButton(
-                  onPressed: _seekForward,
-                  icon: SvgPicture.asset('assets/ic_seek_forward_10.svg'),
-                ),
+                    onPressed: () => _seek(10),
+                    icon: SvgPicture.asset('assets/ic_seek_forward_10.svg')),
                 IconButton(
-                  onPressed: () {},
-                  icon: SvgPicture.asset('assets/ic_expand.svg'),
-                ),
+                    onPressed: () {},
+                    icon: SvgPicture.asset('assets/ic_expand.svg')),
               ],
             ),
           ],
