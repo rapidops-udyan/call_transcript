@@ -34,7 +34,8 @@ class _CallTranscriptionState extends State<CallTranscription>
 
   Future<void> _initializeAudio() async {
     _playerController = PlayerController()
-      ..updateFrequency = UpdateFrequency.high;
+      ..updateFrequency = UpdateFrequency.high
+      ..onPlayerStateChanged.listen((state) {});
     final audioPath = await _loadAudioFile();
     await _playerController.preparePlayer(
       path: audioPath,
